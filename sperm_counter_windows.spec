@@ -1,19 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import os
-import glob
-import PySide6
 
 block_cipher = None
 
-pyside6_dir = os.path.dirname(PySide6.__file__)
-qt_plugins_dir = os.path.join(pyside6_dir, 'plugins')
-
-qt_datas = []
-for subdir in ['platforms', 'styles']:
-    src = os.path.join(qt_plugins_dir, subdir)
-    if os.path.exists(src):
-        qt_datas.append((src, subdir))
+icon_path = 'assets/logos/logo.ico'
+if not os.path.exists(icon_path):
+    icon_path = None
 
 a = Analysis(
     ['sperm_counter_gui_onnx.py'],
@@ -21,7 +14,8 @@ a = Analysis(
     binaries=[],
     datas=[
         ('runs/detect/sperm_detection/weights/best.onnx', '.'),
-    ] + qt_datas,
+        ('assets', 'assets'),
+    ],
     hiddenimports=[
         'onnxruntime',
         'onnxruntime.capi',
@@ -33,54 +27,16 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        'matplotlib',
-        'scipy',
-        'pandas',
-        'tkinter',
-        'PIL',
-        'IPython',
-        'torch',
-        'torchvision',
-        'ultralytics',
-        'sklearn',
-        'seaborn',
-        'plotly',
-        'networkx',
-        'sympy',
-        'pygame',
-        'pyqt5',
-        'wx',
-        'xmlrpc',
-        'smtplib',
-        'email',
-        'urllib3',
-        'requests',
-        'beautifulsoup4',
-        'sqlalchemy',
-        'psycopg2',
-        'mysql',
-        'boto3',
-        'google',
-        'aws',
-        'azure',
-        'tensorflow',
-        'keras',
-        'jax',
-        'mxnet',
-        'openvino',
-        'paddlepaddle',
-        'setuptools',
-        'pip',
-        'wheel',
-        'pip._vendor',
-        'pkg_resources',
-        'unittest',
-        'doctest',
-        'pdb',
-        'curses',
-        'readline',
-        'rlcompleter',
-        'charset_normalizer.md__mypyc',
+        'matplotlib', 'scipy', 'pandas', 'tkinter', 'PIL', 'IPython',
+        'torch', 'torchvision', 'ultralytics',
+        'sklearn', 'seaborn', 'plotly', 'networkx', 'sympy',
+        'pygame', 'wx', 'xmlrpc', 'smtplib', 'email', 'urllib3',
+        'requests', 'beautifulsoup4', 'sqlalchemy', 'psycopg2',
+        'mysql', 'boto3', 'google', 'aws', 'azure', 'tensorflow',
+        'keras', 'jax', 'mxnet', 'openvino', 'paddlepaddle',
+        'setuptools', 'pip', 'wheel', 'pip._vendor', 'pkg_resources',
+        'unittest', 'doctest', 'pdb', 'curses', 'readline',
+        'rlcompleter', 'charset_normalizer.md__mypyc',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -108,6 +64,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=icon_path,
 )
 
 coll = COLLECT(
