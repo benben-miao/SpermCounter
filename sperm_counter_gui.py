@@ -17,7 +17,7 @@ def get_resource_path(relative_path):
     """获取资源文件路径（兼容打包后）"""
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.path.dirname(__file__), relative_path)
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
 
 class WorkerThread(QThread):
     progress_updated = Signal(int)
@@ -83,11 +83,15 @@ class SpermCounterApp(QMainWindow):
             if not os.path.exists(model_path):
                 model_path = get_resource_path('best.pt')
             
+            if not os.path.exists(model_path):
+                raise FileNotFoundError(f"模型文件不存在: {model_path}")
+            
             self.model = YOLO(model_path)
             self.status_bar.showMessage("模型加载成功")
         except Exception as e:
-            QMessageBox.warning(self, "警告", f"模型加载失败: {str(e)}")
-            self.status_bar.showMessage("模型加载失败")
+            QMessageBox.critical(self, "错误", f"模型加载失败: {str(e)}\n\n请确保模型文件存在。")
+            self.status_bar.showMessage(f"模型加载失败: {str(e)}")
+            self.model = None
 
     def init_ui(self):
         self.status_bar = self.statusBar()
@@ -160,6 +164,10 @@ class SpermCounterApp(QMainWindow):
             self.path_edit.setText(path)
 
     def start_analysis(self):
+        if self.model is None:
+            QMessageBox.warning(self, "警告", "模型未加载，无法开始分析")
+            return
+        
         path = self.path_edit.text().strip()
         if not path:
             QMessageBox.warning(self, "警告", "请先选择图片或文件夹")

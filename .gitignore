@@ -6,7 +6,6 @@ __pycache__/
 
 # Python dependencies
 *.egg-info/
-requirements.txt
 
 # Model weights (keep only the best one)
 runs/detect/*/weights/last.pt
@@ -14,6 +13,7 @@ runs/detect/*/weights/last.pt
 # Output files
 yolo_result.jpg
 result.txt
+prediction_result.jpg
 
 # IDE
 .vscode/
@@ -21,3 +21,7 @@ result.txt
 
 # macOS
 .DS_Store
+
+# Cache
+*.cache
+yolo_dataset/*/cache
