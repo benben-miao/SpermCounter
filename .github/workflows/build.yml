@@ -29,11 +29,14 @@ jobs:
       - name: Build macOS app
         run: pyinstaller sperm_counter_onnx.spec --clean --noconfirm
       
+      - name: Create DMG
+        run: hdiutil create -volname SpermCounter -srcfolder dist/SpermCounter.app -ov -format UDZO SpermCounter-macOS.dmg
+      
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: SpermCounter-macOS
-          path: dist/SpermCounter.app
+          path: SpermCounter-macOS.dmg
 
   build-windows:
     runs-on: windows-latest
@@ -53,11 +56,14 @@ jobs:
       - name: Build Windows exe
         run: pyinstaller sperm_counter_windows.spec --clean --noconfirm
       
+      - name: Create ZIP
+        run: Compress-Archive -Path dist\SpermCounter -DestinationPath SpermCounter-Windows.zip
+      
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: SpermCounter-Windows
-          path: dist/SpermCounter
+          path: SpermCounter-Windows.zip
 
   release:
     needs: [build-macos, build-windows]
@@ -68,25 +74,16 @@ jobs:
       - uses: actions/download-artifact@v4.1.8
         with:
           name: SpermCounter-macOS
-          path: ./macos-artifact
       
       - uses: actions/download-artifact@v4.1.8
         with:
           name: SpermCounter-Windows
-          path: ./windows-artifact
-      
-      - name: Create archives
-        run: |
-          cd macos-artifact
-          zip -r --symlinks ../SpermCounter-macOS.zip .
-          cd ../windows-artifact
-          zip -r ../SpermCounter-Windows.zip .
       
       - name: Create Release
         uses: softprops/action-gh-release@v2.0.9
         with:
           files: |
-            SpermCounter-macOS.zip
+            SpermCounter-macOS.dmg
             SpermCounter-Windows.zip
           draft: false
           prerelease: false

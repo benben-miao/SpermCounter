@@ -1,11 +1,19 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import os
+import glob
 import PySide6
 
 block_cipher = None
 
-qt_plugins_dir = os.path.join(os.path.dirname(PySide6.__file__), 'plugins')
+pyside6_dir = os.path.dirname(PySide6.__file__)
+qt_plugins_dir = os.path.join(pyside6_dir, 'plugins')
+
+qt_datas = []
+for subdir in ['platforms', 'styles']:
+    src = os.path.join(qt_plugins_dir, subdir)
+    if os.path.exists(src):
+        qt_datas.append((src, subdir))
 
 a = Analysis(
     ['sperm_counter_gui_onnx.py'],
@@ -13,17 +21,13 @@ a = Analysis(
     binaries=[],
     datas=[
         ('runs/detect/sperm_detection/weights/best.onnx', '.'),
-        (os.path.join(qt_plugins_dir, 'platforms'), 'platforms'),
-    ],
+    ] + qt_datas,
     hiddenimports=[
         'onnxruntime',
         'onnxruntime.capi',
         'onnxruntime.capi._pybind_state',
         'cv2',
         'numpy',
-        'PySide6.QtCore',
-        'PySide6.QtGui',
-        'PySide6.QtWidgets',
     ],
     hookspath=[],
     hooksconfig={},
