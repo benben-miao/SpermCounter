@@ -78,7 +78,7 @@ jobs:
       - name: Create archives
         run: |
           cd macos-artifact
-          zip -r --symlinks ../SpermCounter-macOS.zip SpermCounter.app
+          zip -r --symlinks ../SpermCounter-macOS.zip .
           cd ../windows-artifact
           zip -r ../SpermCounter-Windows.zip .
       
