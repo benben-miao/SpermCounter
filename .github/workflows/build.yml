@@ -41,14 +41,14 @@ jobs:
         uses: actions/setup-python@v5.2.0
         with: { python-version: '3.11' }
       
-      - name: Install UPX (compression)
-        run: choco install upx -y
-      
       - name: Install minimal dependencies
         run: pip install --no-cache-dir pyinstaller pyside6 ultralytics opencv-python numpy -i https://pypi.tuna.tsinghua.edu.cn/simple
       
-      - name: Build with UPX compression
-        run: pyinstaller sperm_counter.spec --clean --noconfirm --upx-dir "C:\ProgramData\chocolatey\lib\upx\tools"
+      - name: Build executable
+        run: pyinstaller sperm_counter.spec --clean --noconfirm
+      
+      - name: List dist directory
+        run: dir dist
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4.3.4
