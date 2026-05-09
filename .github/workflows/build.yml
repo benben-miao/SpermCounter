@@ -1,92 +1,100 @@
-name: Build
+name: Build and Release
 
 on:
   push:
-    branches: [ main ]
+    tags:
+      - 'v*'
   workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
       
       - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+        uses: actions/setup-python@v5.2.0
+        with: { python-version: '3.11' }
       
-      - name: Install dependencies
-        run: |
-          pip install pyinstaller pyside6 ultralytics opencv-python numpy -i https://pypi.tuna.tsinghua.edu.cn/simple
+      - name: Install UPX (compression)
+        run: brew install upx
       
-      - name: Build macOS app
-        run: pyinstaller sperm_counter.spec --clean --noconfirm
+      - name: Install minimal dependencies
+        run: pip install --no-cache-dir pyinstaller pyside6 ultralytics opencv-python numpy -i https://pypi.tuna.tsinghua.edu.cn/simple
       
-      - name: Upload macOS artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: SpermCounter-macOS
-          path: dist/SpermCounter.app
+      - name: Build with UPX compression
+        run: pyinstaller sperm_counter.spec --clean --noconfirm --upx-dir /usr/local/bin
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4.3.4
+        with: { name: SpermCounter-macOS, path: dist/SpermCounter.app }
 
   build-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
       
       - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+        uses: actions/setup-python@v5.2.0
+        with: { python-version: '3.11' }
       
-      - name: Install dependencies
-        run: |
-          pip install pyinstaller pyside6 ultralytics opencv-python numpy -i https://pypi.tuna.tsinghua.edu.cn/simple
+      - name: Install UPX (compression)
+        run: choco install upx -y
       
-      - name: Build Windows app
-        run: pyinstaller sperm_counter.spec --clean --noconfirm
+      - name: Install minimal dependencies
+        run: pip install --no-cache-dir pyinstaller pyside6 ultralytics opencv-python numpy -i https://pypi.tuna.tsinghua.edu.cn/simple
       
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: SpermCounter-Windows
-          path: dist/SpermCounter.exe
+      - name: Build with UPX compression
+        run: pyinstaller sperm_counter.spec --clean --noconfirm --upx-dir "C:\ProgramData\chocolatey\lib\upx\tools"
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4.3.4
+        with: { name: SpermCounter-Windows, path: dist/SpermCounter.exe }
 
   build-linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
       
       - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+        uses: actions/setup-python@v5.2.0
+        with: { python-version: '3.11' }
       
       - name: Install system dependencies
-        run: |
-          sudo apt-get update && sudo apt-get install -y \
-            libgl1 \
-            libglib2.0-0 \
-            libxcb-xinerama0 \
-            libxcb-icccm4 \
-            libxcb-image0 \
-            libxcb-keysyms1 \
-            libxcb-randr0 \
-            libxcb-render-util0 \
-            libxcb-xkb1 \
-            libxkbcommon-x11-0 \
-            libgstreamer1.0-0 \
-            libgstreamer-plugins-base1.0-0
+        run: sudo apt-get update && sudo apt-get install -y libgl1 libglib2.0-0 libxcb-xinerama0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xkb1 libxkbcommon-x11-0 upx
       
-      - name: Install dependencies
-        run: |
-          pip install pyinstaller pyside6 ultralytics opencv-python numpy -i https://pypi.tuna.tsinghua.edu.cn/simple
+      - name: Install minimal dependencies
+        run: pip install --no-cache-dir pyinstaller pyside6 ultralytics opencv-python numpy -i https://pypi.tuna.tsinghua.edu.cn/simple
       
-      - name: Build Linux app
+      - name: Build with UPX compression
         run: pyinstaller sperm_counter.spec --clean --noconfirm
       
-      - name: Upload Linux artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4.3.4
+        with: { name: SpermCounter-Linux, path: dist/SpermCounter }
+
+  release:
+    needs: [build-macos, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4.1.8
+        with: { name: SpermCounter-macOS, path: ./artifacts }
+      - uses: actions/download-artifact@v4.1.8
+        with: { name: SpermCounter-Windows, path: ./artifacts }
+      - uses: actions/download-artifact@v4.1.8
+        with: { name: SpermCounter-Linux, path: ./artifacts }
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v2.0.9
         with:
-          name: SpermCounter-Linux
-          path: dist/SpermCounter
+          files: |
+            artifacts/SpermCounter.app
+            artifacts/SpermCounter.exe
+            artifacts/SpermCounter
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
