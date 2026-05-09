@@ -65,7 +65,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y \
-            libgl1-mesa-glx \
+            libgl1 \
             libglib2.0-0 \
             libxcb-xinerama0 \
             libxcb-icccm4 \
@@ -74,7 +74,9 @@ jobs:
             libxcb-randr0 \
             libxcb-render-util0 \
             libxcb-xkb1 \
-            libxkbcommon-x11-0
+            libxkbcommon-x11-0 \
+            libgstreamer1.0-0 \
+            libgstreamer-plugins-base1.0-0
       
       - name: Install dependencies
         run: |
