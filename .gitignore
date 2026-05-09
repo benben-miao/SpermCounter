@@ -1,0 +1,24 @@
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+*.pyc
+__pycache__/
+
+# Python dependencies
+*.egg-info/
+requirements.txt
+
+# Model weights (keep only the best one)
+runs/detect/*/weights/last.pt
+
+# Output files
+yolo_result.jpg
+result.txt
+
+# IDE
+.vscode/
+.idea/
+
+# macOS
+.DS_Store

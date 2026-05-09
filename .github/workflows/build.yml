@@ -1,0 +1,53 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller pyside6 ultralytics opencv-python numpy -i https://pypi.tuna.tsinghua.edu.cn/simple
+      
+      - name: Build macOS app
+        run: pyinstaller sperm_counter.spec --clean --noconfirm
+      
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpermCounter-macOS
+          path: dist/SpermCounter.app
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller pyside6 ultralytics opencv-python numpy -i https://pypi.tuna.tsinghua.edu.cn/simple
+      
+      - name: Build Windows app
+        run: pyinstaller sperm_counter.spec --clean --noconfirm
+      
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpermCounter-Windows
+          path: dist/SpermCounter.exe
