@@ -14,63 +14,82 @@ jobs:
   build-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       
       - name: Set up Python
-        uses: actions/setup-python@v5.2.0
-        with: { python-version: '3.11' }
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       
       - name: Install dependencies
         run: pip install -r requirements.txt pyinstaller
       
       - name: Build macOS app
-        run: pyinstaller sperm_counter.spec --clean --noconfirm
-      
-      - name: List dist directory
-        run: ls -la dist/
+        run: pyinstaller sperm_counter_onnx.spec --clean --noconfirm
       
       - name: Upload artifact
-        uses: actions/upload-artifact@v4.3.4
-        with: { name: SpermCounter-macOS, path: dist/SpermCounter.app }
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpermCounter-macOS
+          path: dist/SpermCounter.app
 
   build-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       
       - name: Set up Python
-        uses: actions/setup-python@v5.2.0
-        with: { python-version: '3.11' }
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       
       - name: Install dependencies
         run: pip install -r requirements.txt pyinstaller
       
       - name: Build Windows exe
-        run: pyinstaller sperm_counter.spec --clean --noconfirm
-      
-      - name: List dist directory
-        run: dir dist
+        run: pyinstaller sperm_counter_windows.spec --clean --noconfirm
       
       - name: Upload artifact
-        uses: actions/upload-artifact@v4.3.4
-        with: { name: SpermCounter-Windows, path: dist/SpermCounter.exe }
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpermCounter-Windows
+          path: dist/SpermCounter.exe
 
   release:
     needs: [build-macos, build-windows]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4.1.8
-        with: { name: SpermCounter-macOS, path: ./artifacts }
+        with:
+          name: SpermCounter-macOS
+          path: ./macos-artifact
+      
       - uses: actions/download-artifact@v4.1.8
-        with: { name: SpermCounter-Windows, path: ./artifacts }
+        with:
+          name: SpermCounter-Windows
+          path: ./windows-artifact
+      
+      - name: Create archives
+        run: |
+          cd macos-artifact
+          zip -r ../SpermCounter-macOS.zip .
+          cd ../windows-artifact
+          zip -r ../SpermCounter-Windows.zip .
       
       - name: Create Release
         uses: softprops/action-gh-release@v2.0.9
         with:
           files: |
-            artifacts/SpermCounter.app
-            artifacts/SpermCounter.exe
+            SpermCounter-macOS.zip
+            SpermCounter-Windows.zip
           draft: false
           prerelease: false
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
