@@ -27,7 +27,7 @@ jobs:
         run: pip install -r requirements.txt pyinstaller
       
       - name: Build macOS app
-        run: pyinstaller sperm_counter_onnx.spec --clean --noconfirm
+        run: pyinstaller sperm_counter_onnx.spec --noconfirm
       
       - name: Create DMG
         run: hdiutil create -volname SpermCounter -srcfolder dist/SpermCounter.app -ov -format UDZO SpermCounter-macOS.dmg

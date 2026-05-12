@@ -9,7 +9,7 @@ if not os.path.exists(icon_path):
     icon_path = None
 
 a = Analysis(
-    ['sperm_counter_gui_onnx.py'],
+    ['06.pyside_onnx_gui.py'],
     pathex=['.'],
     binaries=[],
     datas=[
