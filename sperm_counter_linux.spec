@@ -6,10 +6,6 @@ block_cipher = None
 model_path = 'runs/detect/sperm_detection/weights/best.onnx'
 logo_path = 'assets/logos/logo.png'
 
-icon_path = 'assets/logos/logo.icns'
-if not os.path.exists(icon_path):
-    icon_path = None
-
 datas = [(model_path, '.')]
 if os.path.exists('README.md'):
     datas.append(('README.md', '.'))
@@ -110,20 +106,4 @@ coll = COLLECT(
     upx=True,
     upx_exclude=[],
     name='SpermCounter',
-)
-
-app = BUNDLE(
-    coll,
-    name='SpermCounter.app',
-    icon=icon_path,
-    bundle_identifier=None,
-    info_plist={
-        'NSHighResolutionCapable': 'True',
-        'CFBundleDisplayName': 'Sperm Staining Analysis Tool',
-        'CFBundleName': 'SpermCounter',
-        'CFBundleShortVersionString': '1.0.0',
-        'CFBundleVersion': '1.0.0',
-        'CFBundleIdentifier': 'com.example.SpermCounter',
-        'LSMinimumSystemVersion': '10.13',
-    },
 )

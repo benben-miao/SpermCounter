@@ -222,26 +222,26 @@ class SpermCounterApp(QMainWindow):
         overall_rate = (total_white / total_count) * 100 if total_count > 0 else 0
         
         self.stats_label.setText(
-            f"共处理 {len(results)} 张图片 | 总计存活: {total_white} | 总计死亡: {total_pink} | 总体存活率: {overall_rate:.2f}%"
+            f"Processed {len(results)} images | Total Alive: {total_white} | Total Dead: {total_pink} | Overall Survival Rate: {overall_rate:.2f}%"
         )
         
         self.progress_bar.setVisible(False)
         self.start_btn.setEnabled(True)
         self.save_btn.setEnabled(True)
-        self.status_bar.showMessage("分析完成")
+        self.status_bar.showMessage("Analysis complete")
 
     def show_error(self, message):
-        QMessageBox.critical(self, "错误", message)
+        QMessageBox.critical(self, "Error", message)
         self.progress_bar.setVisible(False)
         self.start_btn.setEnabled(True)
-        self.status_bar.showMessage("分析失败")
+        self.status_bar.showMessage("Analysis failed")
 
     def save_results(self):
         if not self.results:
-            QMessageBox.warning(self, "警告", "没有可保存的结果")
+            QMessageBox.warning(self, "Warning", "No results to save")
             return
         
-        path, _ = QFileDialog.getSaveFileName(self, "保存结果", "", "文本文件 (*.txt)")
+        path, _ = QFileDialog.getSaveFileName(self, "Save Results", "", "Text Files (*.txt)")
         if not path:
             return
         
@@ -251,7 +251,7 @@ class SpermCounterApp(QMainWindow):
         try:
             with open(path, 'w', encoding='utf-8', newline='') as f:
                 writer = csv.writer(f, delimiter='\t')
-                writer.writerow(["图片名称", "存活数目", "死亡数目", "存活率"])
+                writer.writerow(["Image Name", "Alive Count", "Dead Count", "Survival Rate"])
                 
                 for result in self.results:
                     writer.writerow([
@@ -267,11 +267,11 @@ class SpermCounterApp(QMainWindow):
                 overall_rate = (total_white / total_count) * 100 if total_count > 0 else 0
                 
                 writer.writerow([])
-                writer.writerow(["总体统计", total_white, total_pink, f"{overall_rate:.2f}%"])
+                writer.writerow(["Overall Stats", total_white, total_pink, f"{overall_rate:.2f}%"])
             
-            QMessageBox.information(self, "成功", f"结果已保存到\n{path}")
+            QMessageBox.information(self, "Success", f"Results saved to\n{path}")
         except Exception as e:
-            QMessageBox.critical(self, "错误", f"保存失败: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to save: {str(e)}")
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

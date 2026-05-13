@@ -27,7 +27,7 @@ jobs:
         run: pip install -r requirements.txt pyinstaller
       
       - name: Build macOS app
-        run: pyinstaller sperm_counter_onnx.spec --noconfirm
+        run: pyinstaller sperm_counter_onnx.spec --clean --noconfirm
       
       - name: Create DMG
         run: hdiutil create -volname SpermCounter -srcfolder dist/SpermCounter.app -ov -format UDZO SpermCounter-macOS.dmg
@@ -52,6 +52,9 @@ jobs:
       
       - name: Install dependencies
         run: pip install -r requirements.txt pyinstaller
+
+      - name: Install UPX
+        run: choco install upx -y
       
       - name: Build Windows exe
         run: pyinstaller sperm_counter_windows.spec --clean --noconfirm
@@ -65,8 +68,41 @@ jobs:
           name: SpermCounter-Windows
           path: SpermCounter-Windows.zip
 
+  build-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0
+          sudo apt-get install -y upx-ucl || sudo apt-get install -y upx
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build Ubuntu app
+        run: pyinstaller sperm_counter_linux.spec --clean --noconfirm
+
+      - name: Create TAR archive
+        run: tar -C dist -czf SpermCounter-Ubuntu.tar.gz SpermCounter
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpermCounter-Ubuntu
+          path: SpermCounter-Ubuntu.tar.gz
+
   release:
-    needs: [build-macos, build-windows]
+    needs: [build-macos, build-windows, build-ubuntu]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -78,6 +114,10 @@ jobs:
       - uses: actions/download-artifact@v4.1.8
         with:
           name: SpermCounter-Windows
+
+      - uses: actions/download-artifact@v4.1.8
+        with:
+          name: SpermCounter-Ubuntu
       
       - name: Create Release
         uses: softprops/action-gh-release@v2.0.9
@@ -85,6 +125,7 @@ jobs:
           files: |
             SpermCounter-macOS.dmg
             SpermCounter-Windows.zip
+            SpermCounter-Ubuntu.tar.gz
           draft: false
           prerelease: false
           generate_release_notes: true

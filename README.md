@@ -19,7 +19,6 @@ The underlying YOLOv8 model achieves excellent detection performance:
 #### Precision-Recall Curve
 
 ![Precision-Recall Curve](runs/detect/sperm_detection/BoxPR_curve.png)
-
 #### Precision Curve
 
 ![Precision Curve](runs/detect/sperm_detection/BoxP_curve.png)

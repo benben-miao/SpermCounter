@@ -3,6 +3,8 @@ import os
 import glob
 import csv
 import json
+import re
+import html
 import numpy as np
 import cv2
 from PySide6.QtWidgets import (
@@ -10,25 +12,105 @@ from PySide6.QtWidgets import (
     QPushButton, QLabel, QLineEdit, QFileDialog, QTableWidget,
     QTableWidgetItem, QProgressBar, QMessageBox, QHeaderView,
     QGroupBox, QRadioButton, QButtonGroup, QFrame, QScrollArea,
-    QDoubleSpinBox, QSplitter, QComboBox, QCheckBox, QGraphicsDropShadowEffect,
+    QDoubleSpinBox, QSplitter, QComboBox, QCheckBox,
     QStackedWidget, QSizePolicy, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem,
-    QToolBar
+    QToolBar, QTextBrowser
 )
-from PySide6.QtGui import QPixmap, QIcon, QFont, QColor, QPalette, QImage, QPainter, QAction
-from PySide6.QtCore import Qt, QThread, Signal, QRectF, QPropertyAnimation, QEasingCurve, QSize
+from PySide6.QtGui import QPixmap, QIcon, QFont, QColor, QPalette, QImage, QPainter, QAction, QTextOption
+from PySide6.QtCore import Qt, QThread, Signal, QRectF, QPropertyAnimation, QEasingCurve, QUrl, QSize
+
+try:
+    import qtawesome as qta
+    HAS_QTAWESOME = True
+except ImportError:
+    HAS_QTAWESOME = False
 
 
-THEME = {
-    "sidebar_bg": "#1e293b",
-    "sidebar_text": "#e0e0e0",
-    "sidebar_accent": "#5b9bd5",
-    "content_bg": "#ffffff",
-    "text_primary": "#1e293b",
-    "text_secondary": "#64748b",
-    "accent_green": "#10b981",
-    "accent_blue": "#5b9bd5",
-    "border_color": "#e2e8f0",
+def create_icon_label(icon_name, text, color=None, font_size=22):
+    container = QWidget()
+    container.setAttribute(Qt.WA_StyledBackground, True)
+    container.setStyleSheet("background-color: transparent; border: none;")
+    layout = QHBoxLayout(container)
+    layout.setContentsMargins(0, 0, 0, 12)
+    layout.setSpacing(10)
+
+    if HAS_QTAWESOME and color:
+        icon_label = QLabel()
+        icon_label.setPixmap(qta.icon(icon_name, color=color, scale=1.1).pixmap(font_size + 2, font_size + 2))
+        icon_label.setFixedSize(font_size + 6, font_size + 6)
+        icon_label.setAlignment(Qt.AlignCenter)
+        icon_label.setStyleSheet("background-color: transparent; border: none;")
+        layout.addWidget(icon_label)
+
+    text_label = QLabel(text)
+    text_label.setStyleSheet(f"""
+        QLabel {{
+            color: {THEME['text_primary']};
+            font-size: {font_size}px;
+            font-weight: 700;
+            background-color: transparent;
+        }}
+    """)
+    layout.addWidget(text_label)
+    layout.addStretch()
+    return container
+
+
+def create_field_label(icon_name, text, color=None, font_size=14, weight=600):
+    return create_icon_label(icon_name, text, color or THEME['text_secondary'], font_size)
+
+
+def apply_fontawesome_icon(button, icon_name, color="white", size=18):
+    if HAS_QTAWESOME:
+        button.setIcon(qta.icon(icon_name, color=color, scale=1.1))
+        button.setIconSize(QSize(size, size))
+
+
+THEME_PRESETS = {
+    "Clinical Light": {
+        "sidebar_bg": "#172033",
+        "sidebar_text": "#dbeafe",
+        "sidebar_accent": "#2563eb",
+        "content_bg": "#f6f8fb",
+        "surface": "#ffffff",
+        "muted_surface": "#eef3f8",
+        "text_primary": "#142033",
+        "text_secondary": "#64748b",
+        "accent_green": "#059669",
+        "accent_blue": "#2563eb",
+        "border_color": "#d8e0ea",
+        "shadow": (15, 23, 42, 32),
+    },
+    "Graphite": {
+        "sidebar_bg": "#101418",
+        "sidebar_text": "#d5dde7",
+        "sidebar_accent": "#38bdf8",
+        "content_bg": "#171b21",
+        "surface": "#20262e",
+        "muted_surface": "#14191f",
+        "text_primary": "#f2f6fb",
+        "text_secondary": "#a9b4c2",
+        "accent_green": "#34d399",
+        "accent_blue": "#38bdf8",
+        "border_color": "#303844",
+        "shadow": (0, 0, 0, 70),
+    },
+    "Laboratory": {
+        "sidebar_bg": "#12312d",
+        "sidebar_text": "#d9fff6",
+        "sidebar_accent": "#0f766e",
+        "content_bg": "#f4faf8",
+        "surface": "#ffffff",
+        "muted_surface": "#e8f3ef",
+        "text_primary": "#173330",
+        "text_secondary": "#5f746f",
+        "accent_green": "#16a34a",
+        "accent_blue": "#0f766e",
+        "border_color": "#cfddd8",
+        "shadow": (15, 42, 36, 30),
+    },
 }
+THEME = THEME_PRESETS["Laboratory"].copy()
 
 
 def get_resource_path(relative_path):
@@ -49,6 +131,9 @@ def load_config():
         "output_dir": os.path.expanduser("~/Desktop/SpermResults"),
         "default_conf_thresh": 0.1,
         "default_iou_thresh": 0.45,
+        "theme": "Laboratory",
+        "show_confidence": True,
+        "auto_open_viewer": True,
     }
     if os.path.exists(config_path):
         try:
@@ -108,11 +193,20 @@ class ONNXDetector:
         if len(boxes) == 0:
             return []
         
-        boxes = np.array(boxes)
+        boxes = np.array(boxes, dtype=np.float32)
         scores = np.array(scores)
         class_ids = np.array(class_ids)
         
-        indices = cv2.dnn.NMSBoxes(boxes, scores, conf_thresh, iou_thresh)
+        nms_boxes = []
+        for x_center, y_center, box_w, box_h in boxes:
+            nms_boxes.append([
+                float(x_center - box_w / 2),
+                float(y_center - box_h / 2),
+                float(box_w),
+                float(box_h),
+            ])
+        
+        indices = cv2.dnn.NMSBoxes(nms_boxes, scores.tolist(), conf_thresh, iou_thresh)
         
         results = []
         if len(indices) > 0:
@@ -136,7 +230,7 @@ class ONNXDetector:
         
         return results
     
-    def visualize(self, image_path, detections):
+    def visualize(self, image_path, detections, show_confidence=True):
         img = cv2.imread(image_path)
         if img is None:
             raise ValueError(f"Cannot read image: {image_path}")
@@ -147,10 +241,18 @@ class ONNXDetector:
         for det in detections:
             box = np.array(det['box'])
             x_center, y_center, box_w, box_h = box
-            x1 = int((x_center - box_w / 2) * w)
-            y1 = int((y_center - box_h / 2) * h)
-            x2 = int((x_center + box_w / 2) * w)
-            y2 = int((y_center + box_h / 2) * h)
+            scale_x = w / float(self.img_size)
+            scale_y = h / float(self.img_size)
+            x1 = int((x_center - box_w / 2) * scale_x)
+            y1 = int((y_center - box_h / 2) * scale_y)
+            x2 = int((x_center + box_w / 2) * scale_x)
+            y2 = int((y_center + box_h / 2) * scale_y)
+            x1 = max(0, min(w - 1, x1))
+            y1 = max(0, min(h - 1, y1))
+            x2 = max(0, min(w - 1, x2))
+            y2 = max(0, min(h - 1, y2))
+            if x2 <= x1 or y2 <= y1:
+                continue
             
             if det['class_id'] == 0:
                 color = (0, 255, 0)
@@ -159,12 +261,13 @@ class ONNXDetector:
                 color = (0, 0, 255)
                 label = "Dead"
             
-            cv2.rectangle(img_copy, (x1, y1), (x2, y2), color, 3)
+            line_width = max(2, int(min(w, h) / 300))
+            cv2.rectangle(img_copy, (x1, y1), (x2, y2), color, line_width)
             
-            text = f"{label}: {det['score']:.2f}"
+            text = f"{label}: {det['score']:.2f}" if show_confidence else label
             font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 0.7
-            thickness = 2
+            font_scale = max(0.5, min(w, h) / 1100)
+            thickness = max(1, line_width - 1)
             
             (label_w, label_h), baseline = cv2.getTextSize(text, font, font_scale, thickness)
             
@@ -182,12 +285,13 @@ class WorkerThread(QThread):
     error_occurred = Signal(str)
     image_processed = Signal(str, object, object)
     
-    def __init__(self, detector, image_paths, conf_thresh, iou_thresh):
+    def __init__(self, detector, image_paths, conf_thresh, iou_thresh, show_confidence=True):
         super().__init__()
         self.detector = detector
         self.image_paths = image_paths
         self.conf_thresh = conf_thresh
         self.iou_thresh = iou_thresh
+        self.show_confidence = show_confidence
     
     def run(self):
         results = []
@@ -222,7 +326,7 @@ class WorkerThread(QThread):
                 if len(self.image_paths) == 1:
                     try:
                         original_img = cv2.imread(image_path)
-                        annotated_img = self.detector.visualize(image_path, detections)
+                        annotated_img = self.detector.visualize(image_path, detections, self.show_confidence)
                         self.image_processed.emit(image_path, original_img, annotated_img)
                     except Exception:
                         pass
@@ -245,7 +349,7 @@ class ImageViewer(QGraphicsView):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setFrameShape(QFrame.NoFrame)
-        self.setStyleSheet("background-color: #f8fafc; border-radius: 12px;")
+        self.setStyleSheet(f"background-color: {THEME['muted_surface']}; border-radius: 12px;")
         self.pixmap_item = None
         self.current_zoom = 1.0
     
@@ -285,22 +389,48 @@ class ImageViewer(QGraphicsView):
 
 
 class SidebarButton(QPushButton):
-    def __init__(self, icon, text, parent=None):
+    def __init__(self, icon_name, text, parent=None):
         super().__init__(text, parent)
-        self.setIcon(icon)
-        self.setIconSize(QSize(24, 24))
+        self.icon_name = icon_name
+        self.label = text
+        self.setIconSize(QSize(20, 20))
+        self.setToolTip(text)
         self.setCheckable(True)
         self.setMinimumHeight(50)
         self.setCursor(Qt.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.update_icon(False)
+    
+    def update_icon(self, collapsed):
+        if HAS_QTAWESOME:
+            icon_color = THEME['sidebar_text']
+            if self.isChecked():
+                icon_color = 'white'
+            
+            icon = qta.icon(
+                self.icon_name,
+                color=icon_color,
+                scale=1.3,
+            )
+            self.setIcon(icon)
+            self.setIconSize(QSize(20, 20))
+        
+        if collapsed:
+            self.setText("")
+            self.setMinimumWidth(76)
+            self.setMaximumWidth(76)
+        else:
+            self.setText(f"  {self.label}")
+            self.setMaximumWidth(16777215)
+        
         self.setStyleSheet(f"""
             SidebarButton {{
                 background-color: transparent;
                 color: {THEME['sidebar_text']};
                 border: none;
-                border-radius: 10px;
-                padding: 12px 20px;
-                text-align: left;
+                border-radius: 12px;
+                padding: {8 if collapsed else 12}px {16 if collapsed else 20}px;
+                text-align: { 'center' if collapsed else 'left' };
                 font-size: 15px;
                 font-weight: 600;
             }}
@@ -312,6 +442,9 @@ class SidebarButton(QPushButton):
                 color: white;
             }}
         """)
+    
+    def set_collapsed(self, collapsed):
+        self.update_icon(collapsed)
 
 
 class ModernFrame(QFrame):
@@ -320,30 +453,29 @@ class ModernFrame(QFrame):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setStyleSheet(f"""
             ModernFrame {{
-                background-color: white;
-                border-radius: 16px;
+                background-color: {THEME['surface']};
+                border: 1px solid {THEME['border_color']};
+                border-radius: 12px;
             }}
         """)
-        
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(25)
-        shadow.setXOffset(0)
-        shadow.setYOffset(8)
-        shadow.setColor(QColor(0, 0, 0, 40))
-        self.setGraphicsEffect(shadow)
 
 
 class SpermCounterApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.config = load_config()
+        self.apply_theme_name(self.config.get("theme", "Laboratory"))
         self.setWindowTitle("Sperm Staining Analysis Tool")
         self.setGeometry(100, 100, 1400, 900)
         self.setMinimumSize(1000, 700)
         
         icon_path = get_resource_path("assets/logos/logo.png")
         if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
+            window_icon = QIcon(icon_path)
+            self.setWindowIcon(window_icon)
+        elif HAS_QTAWESOME:
+            microscope_icon = qta.icon('fa5s.microscope', color='#0f766e', scale=3)
+            self.setWindowIcon(microscope_icon)
         
         self.setup_palette()
         
@@ -358,6 +490,13 @@ class SpermCounterApp(QMainWindow):
         
         self.init_ui()
         self.load_model()
+    
+    def apply_theme_name(self, theme_name):
+        if theme_name not in THEME_PRESETS:
+            theme_name = "Laboratory"
+        THEME.clear()
+        THEME.update(THEME_PRESETS[theme_name])
+        self.config["theme"] = theme_name
     
     def setup_palette(self):
         palette = QPalette()
@@ -395,51 +534,58 @@ class SpermCounterApp(QMainWindow):
     
     def create_sidebar(self):
         self.sidebar_widget = QWidget()
+        self.sidebar_widget.setObjectName("sidebarRoot")
         self.sidebar_widget.setFixedWidth(260)
         self.sidebar_widget.setStyleSheet(f"""
-            QWidget {{
+            #sidebarRoot {{
                 background-color: {THEME['sidebar_bg']};
             }}
         """)
         
         layout = QVBoxLayout(self.sidebar_widget)
-        layout.setContentsMargins(20, 30, 20, 30)
+        layout.setContentsMargins(16, 24, 16, 24)
         layout.setSpacing(15)
         
         header_layout = QHBoxLayout()
         
-        self.toggle_btn = QPushButton("◀")
-        self.toggle_btn.setFixedSize(32, 32)
+        self.toggle_btn = QPushButton()
+        self.toggle_btn.setFixedSize(44, 34)
+        if HAS_QTAWESOME:
+            toggle_icon = qta.icon("fa5s.bars", color=THEME['sidebar_text'], scale=1.2)
+            self.toggle_btn.setIcon(toggle_icon)
+            self.toggle_btn.setIconSize(QSize(20, 20))
+        else:
+            self.toggle_btn.setText("≡")
         self.toggle_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: transparent;
                 color: {THEME['sidebar_text']};
                 border: none;
-                border-radius: 8px;
-                font-size: 16px;
-                font-weight: bold;
+                border: 1px solid rgba(255, 255, 255, 0.18);
+                border-radius: 10px;
+                font-size: 13px;
+                font-weight: 700;
             }}
             QPushButton:hover {{
                 background-color: rgba(255, 255, 255, 0.1);
             }}
         """)
         self.toggle_btn.clicked.connect(self.toggle_sidebar)
-        header_layout.addWidget(self.toggle_btn)
-        
+        header_layout.addWidget(self.toggle_btn, 0, Qt.AlignLeft)
         header_layout.addStretch()
         layout.addLayout(header_layout)
         
         sidebar_logo_path = get_resource_path("assets/logos/logo.png")
         if os.path.exists(sidebar_logo_path):
-            sidebar_logo_label = QLabel()
+            self.sidebar_logo_label = QLabel()
             sidebar_logo_pixmap = QPixmap(sidebar_logo_path)
             sidebar_logo_pixmap = sidebar_logo_pixmap.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            sidebar_logo_label.setPixmap(sidebar_logo_pixmap)
-            sidebar_logo_label.setAlignment(Qt.AlignCenter)
-            layout.addWidget(sidebar_logo_label)
+            self.sidebar_logo_label.setPixmap(sidebar_logo_pixmap)
+            self.sidebar_logo_label.setAlignment(Qt.AlignCenter)
+            layout.addWidget(self.sidebar_logo_label)
         
-        title_label = QLabel("Sperm Analysis")
-        title_label.setStyleSheet(f"""
+        self.sidebar_title_label = QLabel("Sperm Analysis")
+        self.sidebar_title_label.setStyleSheet(f"""
             QLabel {{
                 color: white;
                 font-size: 34px;
@@ -447,32 +593,28 @@ class SpermCounterApp(QMainWindow):
                 padding: 10px 0;
             }}
         """)
-        layout.addWidget(title_label)
+        layout.addWidget(self.sidebar_title_label)
         
-        subtitle_label = QLabel("Staining Status Tool")
-        subtitle_label.setStyleSheet(f"""
+        self.sidebar_subtitle_label = QLabel("Staining Status Tool")
+        self.sidebar_subtitle_label.setStyleSheet(f"""
             QLabel {{
                 color: {THEME['text_secondary']};
                 font-size: 14px;
                 padding-bottom: 20px;
             }}
         """)
-        layout.addWidget(subtitle_label)
+        layout.addWidget(self.sidebar_subtitle_label)
         
         self.nav_group = QButtonGroup(self)
         
-        home_icon = QIcon.fromTheme("go-home")
-        analyze_icon = QIcon.fromTheme("view-refresh")
-        settings_icon = QIcon.fromTheme("preferences-system")
-        
-        self.home_btn = SidebarButton(home_icon, "Home")
+        self.home_btn = SidebarButton("fa5s.home", "Home")
         self.home_btn.setChecked(True)
         self.nav_group.addButton(self.home_btn, 0)
         
-        self.analyze_btn = SidebarButton(analyze_icon, "Analyze")
+        self.analyze_btn = SidebarButton("fa5s.microscope", "Analyze")
         self.nav_group.addButton(self.analyze_btn, 1)
         
-        self.settings_btn = SidebarButton(settings_icon, "Settings")
+        self.settings_btn = SidebarButton("fa5s.cog", "Settings")
         self.nav_group.addButton(self.settings_btn, 2)
         
         layout.addWidget(self.home_btn)
@@ -481,14 +623,14 @@ class SpermCounterApp(QMainWindow):
         
         layout.addStretch()
         
-        version_label = QLabel("v1.0.5")
-        version_label.setStyleSheet(f"""
+        self.sidebar_version_label = QLabel("v1.0.5")
+        self.sidebar_version_label.setStyleSheet(f"""
             QLabel {{
                 color: {THEME['text_secondary']};
                 font-size: 13px;
             }}
         """)
-        layout.addWidget(version_label)
+        layout.addWidget(self.sidebar_version_label)
         
         self.nav_group.buttonClicked.connect(self.switch_page)
         
@@ -496,11 +638,37 @@ class SpermCounterApp(QMainWindow):
     
     def toggle_sidebar(self):
         if self.sidebar_expanded:
-            target_width = 60
-            self.toggle_btn.setText("▶")
+            target_width = 76
+            if HAS_QTAWESOME:
+                toggle_icon = qta.icon("fa5s.bars", color=THEME['sidebar_text'], scale=1.2)
+                self.toggle_btn.setIcon(toggle_icon)
+                self.toggle_btn.setIconSize(QSize(20, 20))
+                self.toggle_btn.setText("")
+            else:
+                self.toggle_btn.setText("≡")
+            self.toggle_btn.setFixedSize(44, 34)
+            for widget in (self.home_btn, self.analyze_btn, self.settings_btn):
+                widget.set_collapsed(True)
+            for widget in (self.sidebar_title_label, self.sidebar_subtitle_label, self.sidebar_version_label):
+                widget.setVisible(False)
+            if hasattr(self, "sidebar_logo_label"):
+                self.sidebar_logo_label.setVisible(False)
         else:
             target_width = 260
-            self.toggle_btn.setText("◀")
+            if HAS_QTAWESOME:
+                toggle_icon = qta.icon("fa5s.bars", color=THEME['sidebar_text'], scale=1.2)
+                self.toggle_btn.setIcon(toggle_icon)
+                self.toggle_btn.setIconSize(QSize(20, 20))
+                self.toggle_btn.setText("")
+            else:
+                self.toggle_btn.setText("≡")
+            self.toggle_btn.setFixedSize(44, 34)
+            for widget in (self.home_btn, self.analyze_btn, self.settings_btn):
+                widget.set_collapsed(False)
+            for widget in (self.sidebar_title_label, self.sidebar_subtitle_label, self.sidebar_version_label):
+                widget.setVisible(True)
+            if hasattr(self, "sidebar_logo_label"):
+                self.sidebar_logo_label.setVisible(True)
         
         self.animation = QPropertyAnimation(self.sidebar, b"minimumWidth")
         self.animation.setDuration(300)
@@ -514,9 +682,11 @@ class SpermCounterApp(QMainWindow):
     
     def create_content_area(self):
         content = QWidget()
+        content.setObjectName("contentRoot")
         content.setStyleSheet(f"""
-            QWidget {{
+            #contentRoot {{
                 background-color: {THEME['content_bg']};
+                color: {THEME['text_primary']};
             }}
         """)
         
@@ -542,180 +712,464 @@ class SpermCounterApp(QMainWindow):
     def create_home_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setSpacing(25)
+        layout.setSpacing(16)
         layout.setContentsMargins(0, 0, 0, 0)
         
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("""
-            QScrollArea {
-                border: none;
-                background-color: transparent;
-            }
-        """)
-        scroll_content = QWidget()
-        scroll_layout = QVBoxLayout(scroll_content)
-        scroll_layout.setSpacing(25)
-        scroll_layout.setContentsMargins(0, 0, 0, 0)
-        scroll.setWidget(scroll_content)
-        layout.addWidget(scroll)
-        
-        welcome_frame = ModernFrame()
-        welcome_layout = QVBoxLayout(welcome_frame)
-        welcome_layout.setContentsMargins(45, 45, 45, 45)
-        welcome_layout.setAlignment(Qt.AlignCenter)
-        
-        logo_path = get_resource_path("assets/logos/logo.png")
-        if os.path.exists(logo_path):
-            logo_label = QLabel()
-            logo_pixmap = QPixmap(logo_path)
-            logo_pixmap = logo_pixmap.scaled(160, 160, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            logo_label.setPixmap(logo_pixmap)
-            logo_label.setAlignment(Qt.AlignCenter)
-            welcome_layout.addWidget(logo_label)
-            welcome_layout.addSpacing(20)
-        
-        welcome_title = QLabel("Welcome to Sperm Analysis")
-        welcome_title.setStyleSheet(f"""
+        header = QHBoxLayout()
+        title = QLabel("Sperm Staining Analysis")
+        title.setStyleSheet(f"""
             QLabel {{
                 color: {THEME['text_primary']};
-                font-size: 36px;
+                font-size: 28px;
                 font-weight: 800;
-                padding-bottom: 14px;
-                line-height: 1.2;
             }}
         """)
-        welcome_layout.addWidget(welcome_title)
+        header.addWidget(title)
+        header.addStretch()
         
-        welcome_desc = QLabel("Professional tool for analyzing sperm staining status. Fast, accurate, and easy to use.")
-        welcome_desc.setWordWrap(True)
-        welcome_desc.setStyleSheet(f"""
+        badge = QLabel("README")
+        badge.setStyleSheet(f"""
             QLabel {{
-                color: {THEME['text_secondary']};
-                font-size: 18px;
+                color: white;
+                background-color: {THEME['sidebar_accent']};
+                border-radius: 9px;
+                padding: 6px 13px;
+                font-size: 13px;
+                font-weight: 700;
+            }}
+        """)
+        header.addWidget(badge)
+        
+        refresh_btn = QPushButton("Refresh")
+        apply_fontawesome_icon(refresh_btn, "fa5s.sync-alt", "white", 14)
+        refresh_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {THEME['sidebar_accent']};
+                color: white;
+                border: none;
+                border-radius: 9px;
+                padding: 6px 13px;
+                font-size: 13px;
+                font-weight: 700;
+            }}
+            QPushButton:hover {{
+                background-color: {THEME['accent_green']};
+            }}
+        """)
+        refresh_btn.clicked.connect(self.refresh_readme)
+        header.addWidget(refresh_btn)
+        
+        layout.addLayout(header)
+        
+        self.readme_browser = QTextBrowser()
+        self.readme_browser.setOpenExternalLinks(True)
+        self.readme_browser.setLineWrapMode(QTextBrowser.WidgetWidth)
+        self.readme_browser.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+        self.readme_browser.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.readme_browser.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.readme_browser.setAcceptRichText(True)
+        self.readme_browser.setStyleSheet(f"""
+            QTextBrowser {{
+                background-color: {THEME['surface']};
+                color: {THEME['text_primary']};
+                border: 1px solid {THEME['border_color']};
+                border-radius: 12px;
+                padding: 28px;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+                font-size: 16px;
+                line-height: 1.7;
+            }}
+            QTextBrowser h1 {{
+                color: {THEME['text_primary']};
+                font-size: 32px;
+                font-weight: 700;
+                margin-top: 0px;
+                margin-bottom: 16px;
+                padding-bottom: 8px;
+                border-bottom: 2px solid {THEME['border_color']};
+            }}
+            QTextBrowser h2 {{
+                color: {THEME['text_primary']};
+                font-size: 24px;
+                font-weight: 650;
+                margin-top: 32px;
+                margin-bottom: 16px;
+                padding-bottom: 6px;
+                border-bottom: 1px solid {THEME['border_color']};
+            }}
+            QTextBrowser h3 {{
+                color: {THEME['text_primary']};
+                font-size: 20px;
+                font-weight: 600;
+                margin-top: 24px;
+                margin-bottom: 12px;
+            }}
+            QTextBrowser h4 {{
+                color: {THEME['text_primary']};
+                font-size: 16px;
+                font-weight: 600;
+                margin-top: 20px;
+                margin-bottom: 10px;
+            }}
+            QTextBrowser p {{
+                color: {THEME['text_primary']};
+                margin-top: 12px;
+                margin-bottom: 12px;
+                text-align: justify;
+            }}
+            QTextBrowser pre {{
+                background-color: {THEME['muted_surface']};
+                color: {THEME['text_primary']};
+                border: 1px solid {THEME['border_color']};
+                border-radius: 8px;
+                padding: 18px;
+                white-space: pre-wrap;
+                font-family: 'Menlo', 'Consolas', 'Monaco', 'Courier New', monospace;
+                font-size: 14px;
+                margin: 16px 0;
+                line-height: 1.5;
+            }}
+            QTextBrowser code {{
+                background-color: {THEME['muted_surface']};
+                color: {THEME['text_primary']};
+                font-family: 'Menlo', 'Consolas', 'Monaco', 'Courier New', monospace;
+                padding: 3px 8px;
+                border-radius: 4px;
+                font-size: 14px;
+            }}
+            QTextBrowser pre code {{
+                background-color: transparent;
+                padding: 0;
+            }}
+            QTextBrowser table {{
+                border-collapse: collapse;
+                width: 100%;
+                margin: 20px 0;
+                border-radius: 8px;
+                overflow: hidden;
+            }}
+            QTextBrowser tr {{
+                border-bottom: 1px solid {THEME['border_color']};
+            }}
+            QTextBrowser tr:last-child {{
+                border-bottom: none;
+            }}
+            QTextBrowser th {{
+                padding: 12px 16px;
+                border: 1px solid {THEME['border_color']};
+                background-color: {THEME['muted_surface']};
+                font-weight: 650;
+                color: {THEME['text_primary']};
+                text-align: left;
+                font-size: 15px;
+            }}
+            QTextBrowser td {{
+                padding: 12px 16px;
+                border: 1px solid {THEME['border_color']};
+                color: {THEME['text_primary']};
+                font-size: 15px;
+            }}
+            QTextBrowser ul {{
+                margin: 12px 0;
+                padding-left: 32px;
+            }}
+            QTextBrowser ol {{
+                margin: 12px 0;
+                padding-left: 32px;
+            }}
+            QTextBrowser li {{
+                margin: 6px 0;
                 line-height: 1.6;
             }}
-        """)
-        welcome_layout.addWidget(welcome_desc)
-        
-        scroll_layout.addWidget(welcome_frame)
-        
-        features_frame = ModernFrame()
-        features_layout = QVBoxLayout(features_frame)
-        features_layout.setContentsMargins(45, 45, 45, 45)
-        
-        features_title = QLabel("Key Features")
-        features_title.setStyleSheet(f"""
-            QLabel {{
-                color: {THEME['text_primary']};
-                font-size: 26px;
-                font-weight: 700;
-                padding-bottom: 28px;
-                line-height: 1.2;
+            QTextBrowser li::marker {{
+                color: {THEME['sidebar_accent']};
+            }}
+            QTextBrowser img {{
+                max-width: 100%;
+                height: auto;
+                display: block;
+                margin: 6px 0 10px 0;
+                border-radius: 10px;
+            }}
+            QTextBrowser a {{
+                color: {THEME['sidebar_accent']};
+                text-decoration: none;
+                font-weight: 500;
+            }}
+            QTextBrowser a:hover {{
+                text-decoration: underline;
+            }}
+            QTextBrowser blockquote {{
+                border-left: 4px solid {THEME['sidebar_accent']};
+                margin: 16px 0;
+                padding-left: 20px;
+                padding-right: 20px;
+                color: {THEME['text_secondary']};
+                background-color: {THEME['muted_surface']};
+                border-radius: 0 8px 8px 0;
+            }}
+            QTextBrowser hr {{
+                border: none;
+                border-top: 2px solid {THEME['border_color']};
+                margin: 24px 0;
             }}
         """)
-        features_layout.addWidget(features_title)
-        
-        features = [
-            ("🔍", "YOLO-based Detection", "State-of-the-art object detection powered by YOLOv8 neural network for high accuracy"),
-            ("📊", "Batch Processing", "Analyze hundreds of images simultaneously with real-time progress tracking"),
-            ("🎯", "Visual Results", "View original and annotated images with detection bounding boxes"),
-            ("⚙️", "Custom Parameters", "Fine-tune confidence threshold and IoU threshold to optimize detection results"),
-            ("💾", "Export Results", "Save comprehensive analysis results to CSV files with clear headers and statistics"),
-            ("🎨", "Modern UI", "Clean, intuitive, and fully English-localized interface with beautiful design"),
-        ]
-        
-        for icon, title, desc in features:
-            feature_layout = QHBoxLayout()
-            
-            icon_label = QLabel(icon)
-            icon_label.setStyleSheet("""
-                QLabel {
-                    font-size: 38px;
-                    padding-right: 24px;
-                    padding-top: 2px;
-                }
-            """)
-            feature_layout.addWidget(icon_label)
-            
-            text_layout = QVBoxLayout()
-            
-            feat_title = QLabel(title)
-            feat_title.setStyleSheet(f"""
-                QLabel {{
-                    color: {THEME['text_primary']};
-                    font-size: 18px;
-                    font-weight: 700;
-                    padding-bottom: 5px;
-                    line-height: 1.3;
-                }}
-            """)
-            text_layout.addWidget(feat_title)
-            
-            feat_desc = QLabel(desc)
-            feat_desc.setWordWrap(True)
-            feat_desc.setStyleSheet(f"""
-                QLabel {{
-                    color: {THEME['text_secondary']};
-                    font-size: 16px;
-                    line-height: 1.6;
-                }}
-            """)
-            text_layout.addWidget(feat_desc)
-            
-            feature_layout.addLayout(text_layout, 1)
-            features_layout.addLayout(feature_layout)
-            features_layout.addSpacing(20)
-        
-        scroll_layout.addWidget(features_frame)
-        
-        quick_frame = ModernFrame()
-        quick_layout = QVBoxLayout(quick_frame)
-        quick_layout.setContentsMargins(45, 45, 45, 45)
-        
-        quick_title = QLabel("Quick Start Guide")
-        quick_title.setStyleSheet(f"""
-            QLabel {{
-                color: {THEME['text_primary']};
-                font-size: 26px;
-                font-weight: 700;
-                padding-bottom: 28px;
-                line-height: 1.2;
-            }}
-        """)
-        quick_layout.addWidget(quick_title)
-        
-        steps = [
-            "1. Go to the Settings page to configure default parameters (optional)",
-            "2. Navigate to the Analyze page",
-            "3. Select either a single image or an entire folder of images",
-            "4. Adjust the Confidence and IoU thresholds as needed for your use case",
-            "5. Click Start Analysis and wait for processing to complete",
-            "6. View results in the table and click on rows to see image",
-            "7. Export results to CSV if needed",
-        ]
-        
-        for step in steps:
-            step_label = QLabel(step)
-            step_label.setWordWrap(True)
-            step_label.setStyleSheet(f"""
-                QLabel {{
-                    color: {THEME['text_secondary']};
-                    font-size: 17px;
-                    padding: 10px 0;
-                    line-height: 1.5;
-                }}
-            """)
-            quick_layout.addWidget(step_label)
-        
-        scroll_layout.addWidget(quick_frame)
-        
-        scroll_layout.addStretch()
+        self.readme_browser.setHtml(self.load_readme_html())
+        layout.addWidget(self.readme_browser, 1)
         
         return page
+    
+    def load_readme_html(self):
+        readme_path = get_resource_path("README.md")
+        if not os.path.exists(readme_path):
+            readme_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "README.md")
+        try:
+            with open(readme_path, "r", encoding="utf-8") as f:
+                markdown = f.read()
+                return self.build_readme_html(markdown)
+        except Exception as e:
+            message = html.escape(f"README.md could not be loaded: {str(e)}")
+            return f"<h1>Sperm Staining Analysis</h1><p>{message}</p>"
+    
+    def build_readme_html(self, markdown):
+        body = self.markdown_to_html(markdown)
+        return f"""
+        <!doctype html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <style>
+                body {{
+                    margin: 0;
+                    color: {THEME['text_primary']};
+                    background: {THEME['surface']};
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+                    font-size: 16px;
+                    line-height: 1.65;
+                }}
+                h1 {{
+                    font-size: 32px;
+                    margin: 0 0 18px 0;
+                    padding-bottom: 10px;
+                    border-bottom: 2px solid {THEME['border_color']};
+                }}
+                h2 {{
+                    font-size: 24px;
+                    margin: 30px 0 14px 0;
+                    padding-bottom: 6px;
+                    border-bottom: 1px solid {THEME['border_color']};
+                }}
+                h3 {{ font-size: 20px; margin: 18px 0 6px 0; }}
+                h4 {{ font-size: 17px; margin: 20px 0 10px 0; }}
+                p {{ margin: 12px 0; }}
+                .readme-image {{
+                    margin: 8px 0 16px 0;
+                    padding: 0;
+                    line-height: 1;
+                }}
+                a {{ color: {THEME['sidebar_accent']}; text-decoration: none; }}
+                img {{
+                    max-width: 100%;
+                    height: auto;
+                    display: block;
+                    margin: 0;
+                    border-radius: 10px;
+                }}
+                pre {{
+                    white-space: pre-wrap;
+                    word-wrap: break-word;
+                    overflow-wrap: anywhere;
+                    background: {THEME['muted_surface']};
+                    border: 1px solid {THEME['border_color']};
+                    border-radius: 8px;
+                    padding: 14px;
+                    margin: 14px 0;
+                    font-family: Menlo, Consolas, Monaco, monospace;
+                    font-size: 13px;
+                    line-height: 1.5;
+                }}
+                code {{
+                    background: {THEME['muted_surface']};
+                    border-radius: 4px;
+                    padding: 2px 5px;
+                    font-family: Menlo, Consolas, Monaco, monospace;
+                    font-size: 13px;
+                }}
+                pre code {{ background: transparent; padding: 0; }}
+                table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin: 16px 0;
+                }}
+                th, td {{
+                    border: 1px solid {THEME['border_color']};
+                    padding: 8px 10px;
+                    vertical-align: top;
+                }}
+                th {{ background: {THEME['muted_surface']}; }}
+                blockquote {{
+                    border-left: 4px solid {THEME['sidebar_accent']};
+                    background: {THEME['muted_surface']};
+                    margin: 14px 0;
+                    padding: 10px 14px;
+                }}
+            </style>
+        </head>
+        <body>{body}</body>
+        </html>
+        """
+    
+    def markdown_to_html(self, markdown):
+        lines = markdown.splitlines()
+        out = []
+        in_code_block = False
+        code_block = []
+        in_list = False
+        list_type = "ul"
+        table_rows = []
+        
+        def close_list():
+            nonlocal in_list
+            if in_list:
+                out.append(f"</{list_type}>")
+                in_list = False
+        
+        def flush_table():
+            nonlocal table_rows
+            if table_rows:
+                out.extend(self.process_table(table_rows))
+                table_rows = []
+        
+        for line in lines:
+            stripped = line.strip()
+            
+            if stripped.startswith("```"):
+                if in_code_block:
+                    out.append("<pre><code>" + html.escape("\n".join(code_block)) + "</code></pre>")
+                    code_block = []
+                    in_code_block = False
+                else:
+                    close_list()
+                    flush_table()
+                    in_code_block = True
+                continue
+            
+            if in_code_block:
+                code_block.append(line)
+                continue
+            
+            if stripped.startswith("|") and stripped.endswith("|"):
+                close_list()
+                if not re.match(r"^\|\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$", stripped):
+                    table_rows.append([cell.strip() for cell in stripped.split("|")[1:-1]])
+                continue
+            flush_table()
+            
+            image_match = re.match(r"!\[([^\]]*)\]\(([^)]+)\)", stripped)
+            if image_match:
+                close_list()
+                out.append(self.render_image(image_match.group(1), image_match.group(2)))
+            elif stripped.startswith("# "):
+                close_list()
+                out.append(f"<h1>{html.escape(stripped[2:])}</h1>")
+            elif stripped.startswith("## "):
+                close_list()
+                out.append(f"<h2>{html.escape(stripped[3:])}</h2>")
+            elif stripped.startswith("### "):
+                close_list()
+                out.append(f"<h3>{html.escape(stripped[4:])}</h3>")
+            elif stripped.startswith("#### "):
+                close_list()
+                out.append(f"<h4>{html.escape(stripped[5:])}</h4>")
+            elif stripped.startswith("- ") or stripped.startswith("* "):
+                if not in_list or list_type != "ul":
+                    close_list()
+                    out.append("<ul>")
+                    in_list = True
+                    list_type = "ul"
+                out.append(f"<li>{self.process_inline_formatting(html.escape(stripped[2:]))}</li>")
+            elif re.match(r"^\d+\. ", stripped):
+                if not in_list or list_type != "ol":
+                    close_list()
+                    out.append("<ol>")
+                    in_list = True
+                    list_type = "ol"
+                item = re.sub(r"^\d+\. ", "", stripped)
+                out.append(f"<li>{self.process_inline_formatting(html.escape(item))}</li>")
+            elif stripped.startswith("> "):
+                close_list()
+                out.append(f"<blockquote>{self.process_inline_formatting(html.escape(stripped[2:]))}</blockquote>")
+            elif stripped in ("---", "***", "___"):
+                close_list()
+                out.append("<hr>")
+            elif stripped:
+                close_list()
+                out.append(f"<p>{self.process_inline_formatting(html.escape(stripped))}</p>")
+            else:
+                close_list()
+        
+        if in_code_block:
+            out.append("<pre><code>" + html.escape("\n".join(code_block)) + "</code></pre>")
+        close_list()
+        flush_table()
+        return "\n".join(out)
+    
+    def render_image(self, alt_text, image_path):
+        image_path = image_path.strip()
+        if image_path.startswith(("http://", "https://", "file://")):
+            src = image_path
+        else:
+            readme_base = sys._MEIPASS if hasattr(sys, "_MEIPASS") else os.path.dirname(os.path.abspath(__file__))
+            src = QUrl.fromLocalFile(os.path.abspath(os.path.join(readme_base, image_path))).toString()
+        return f'<p class="readme-image"><img src="{src}" alt="{html.escape(alt_text)}"></p>'
+    
+    def escape_html(self, text):
+        """Escape HTML special characters"""
+        return html.escape(text)
+    
+    def process_inline_formatting(self, text):
+        """Process inline formatting like bold, italic, code"""
+        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
+        text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+        text = re.sub(r'__(.+?)__', r'<strong>\1</strong>', text)
+        text = re.sub(r'\*(.+?)\*', r'<em>\1</em>', text)
+        text = re.sub(r'_(.+?)_', r'<em>\1</em>', text)
+        text = re.sub(r'`(.+?)`', r'<code>\1</code>', text)
+        return text
+    
+    def process_table(self, rows):
+        """Process table rows into HTML"""
+        if not rows:
+            return []
+        
+        result = []
+        result.append('<table>')
+        
+        if rows:
+            result.append('<thead><tr>')
+            for cell in rows[0]:
+                result.append(f'<th>{self.process_inline_formatting(html.escape(cell))}</th>')
+            result.append('</tr></thead>')
+        
+        if len(rows) > 1:
+            result.append('<tbody>')
+            for row in rows[1:]:
+                result.append('<tr>')
+                for cell in row:
+                    result.append(f'<td>{self.process_inline_formatting(html.escape(cell))}</td>')
+                result.append('</tr>')
+            result.append('</tbody>')
+        
+        result.append('</table>')
+        return result
+    
+    def refresh_readme(self):
+        """Refresh the README display"""
+        try:
+            self.readme_browser.setHtml(self.load_readme_html())
+            QMessageBox.information(self, "Success", "README refreshed successfully!")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to refresh README: {str(e)}")
     
     def create_analyze_page(self):
         page = QWidget()
@@ -754,29 +1208,13 @@ class SpermCounterApp(QMainWindow):
         params_layout = QVBoxLayout(params_frame)
         params_layout.setContentsMargins(30, 30, 30, 30)
         
-        params_title = QLabel("🎯 Detection Parameters")
-        params_title.setStyleSheet(f"""
-            QLabel {{
-                color: {THEME['text_primary']};
-                font-size: 22px;
-                font-weight: 700;
-                padding-bottom: 20px;
-            }}
-        """)
+        params_title = create_icon_label("fa5s.bullseye", "Detection Parameters", THEME['sidebar_accent'], 22)
         params_layout.addWidget(params_title)
         
         params_grid = QHBoxLayout()
         
         conf_layout = QVBoxLayout()
-        conf_label = QLabel("Confidence Threshold")
-        conf_label.setStyleSheet(f"""
-            QLabel {{
-                color: {THEME['text_secondary']};
-                font-size: 15px;
-                font-weight: 600;
-                padding-bottom: 10px;
-            }}
-        """)
+        conf_label = create_field_label("fa5s.sliders-h", "Confidence Threshold", THEME['text_secondary'], 15)
         conf_layout.addWidget(conf_label)
         
         self.conf_spin = QDoubleSpinBox()
@@ -790,7 +1228,7 @@ class SpermCounterApp(QMainWindow):
                 padding: 12px 16px;
                 border: 2px solid {THEME['border_color']};
                 border-radius: 10px;
-                background-color: white;
+                background-color: {THEME['surface']};
                 font-size: 16px;
                 font-weight: 500;
             }}
@@ -803,15 +1241,7 @@ class SpermCounterApp(QMainWindow):
         params_grid.addLayout(conf_layout, 1)
         
         iou_layout = QVBoxLayout()
-        iou_label = QLabel("IoU Threshold")
-        iou_label.setStyleSheet(f"""
-            QLabel {{
-                color: {THEME['text_secondary']};
-                font-size: 15px;
-                font-weight: 600;
-                padding-bottom: 10px;
-            }}
-        """)
+        iou_label = create_field_label("fa5s.crosshairs", "IoU Threshold", THEME['text_secondary'], 15)
         iou_layout.addWidget(iou_label)
         
         self.iou_spin = QDoubleSpinBox()
@@ -825,7 +1255,7 @@ class SpermCounterApp(QMainWindow):
                 padding: 12px 16px;
                 border: 2px solid {THEME['border_color']};
                 border-radius: 10px;
-                background-color: white;
+                background-color: {THEME['surface']};
                 font-size: 16px;
                 font-weight: 500;
             }}
@@ -844,15 +1274,7 @@ class SpermCounterApp(QMainWindow):
         input_layout = QVBoxLayout(input_frame)
         input_layout.setContentsMargins(30, 30, 30, 30)
         
-        input_title = QLabel("📁 Input Selection")
-        input_title.setStyleSheet(f"""
-            QLabel {{
-                color: {THEME['text_primary']};
-                font-size: 22px;
-                font-weight: 700;
-                padding-bottom: 20px;
-            }}
-        """)
+        input_title = create_icon_label("fa5s.folder-open", "Input Selection", THEME['sidebar_accent'], 22)
         input_layout.addWidget(input_title)
         
         radio_layout = QHBoxLayout()
@@ -891,7 +1313,7 @@ class SpermCounterApp(QMainWindow):
                 padding: 12px 16px;
                 border: 2px solid {THEME['border_color']};
                 border-radius: 10px;
-                background-color: white;
+                background-color: {THEME['surface']};
                 font-size: 16px;
                 font-weight: 500;
             }}
@@ -902,6 +1324,7 @@ class SpermCounterApp(QMainWindow):
         path_layout.addWidget(self.path_edit, 1)
         
         self.browse_btn = QPushButton("Browse...")
+        apply_fontawesome_icon(self.browse_btn, "fa5s.folder-open", "white", 16)
         self.browse_btn.setMinimumSize(130, 50)
         self.browse_btn.setStyleSheet(f"""
             QPushButton {{
@@ -925,7 +1348,8 @@ class SpermCounterApp(QMainWindow):
         
         btn_layout = QHBoxLayout()
         
-        self.start_btn = QPushButton("▶ Start Analysis")
+        self.start_btn = QPushButton("Start Analysis")
+        apply_fontawesome_icon(self.start_btn, "fa5s.play", "white", 16)
         self.start_btn.setMinimumSize(180, 55)
         self.start_btn.setStyleSheet(f"""
             QPushButton {{
@@ -947,7 +1371,8 @@ class SpermCounterApp(QMainWindow):
         self.start_btn.clicked.connect(self.start_analysis)
         btn_layout.addWidget(self.start_btn)
         
-        self.save_btn = QPushButton("💾 Save Results")
+        self.save_btn = QPushButton("Save Results")
+        apply_fontawesome_icon(self.save_btn, "fa5s.save", "white", 16)
         self.save_btn.setEnabled(False)
         self.save_btn.setMinimumSize(180, 55)
         self.save_btn.setStyleSheet(f"""
@@ -996,15 +1421,7 @@ class SpermCounterApp(QMainWindow):
         table_frame_layout = QVBoxLayout(self.table_frame)
         table_frame_layout.setContentsMargins(30, 30, 30, 30)
         
-        table_title = QLabel("📊 Analysis Results")
-        table_title.setStyleSheet(f"""
-            QLabel {{
-                color: {THEME['text_primary']};
-                font-size: 20px;
-                font-weight: 700;
-                padding-bottom: 15px;
-            }}
-        """)
+        table_title = create_icon_label("fa5s.chart-bar", "Analysis Results", THEME['accent_blue'], 20)
         table_frame_layout.addWidget(table_title)
         
         self.table = QTableWidget()
@@ -1020,7 +1437,7 @@ class SpermCounterApp(QMainWindow):
         self.table.setStyleSheet(f"""
             QTableWidget {{
                 border: none;
-                background-color: white;
+                background-color: {THEME['surface']};
                 border-radius: 10px;
                 gridline-color: {THEME['border_color']};
             }}
@@ -1033,7 +1450,7 @@ class SpermCounterApp(QMainWindow):
                 color: white;
             }}
             QHeaderView::section {{
-                background-color: #f8fafc;
+                background-color: {THEME['muted_surface']};
                 color: {THEME['text_secondary']};
                 padding: 12px;
                 border: none;
@@ -1053,7 +1470,7 @@ class SpermCounterApp(QMainWindow):
                 font-size: 16px;
                 font-weight: 700;
                 padding: 18px;
-                background-color: white;
+                background-color: {THEME['surface']};
                 border-radius: 12px;
             }}
         """)
@@ -1064,15 +1481,7 @@ class SpermCounterApp(QMainWindow):
         viewer_frame_layout = QVBoxLayout(self.viewer_frame)
         viewer_frame_layout.setContentsMargins(30, 30, 30, 30)
         
-        viewer_title = QLabel("🖼️ Image Viewer - Click on table row to view")
-        viewer_title.setStyleSheet(f"""
-            QLabel {{
-                color: {THEME['text_primary']};
-                font-size: 20px;
-                font-weight: 700;
-                padding-bottom: 15px;
-            }}
-        """)
+        viewer_title = create_icon_label("fa5s.images", "Image Viewer - Click on table row to view", THEME['sidebar_accent'], 20)
         viewer_frame_layout.addWidget(viewer_title)
         
         viewer_options_layout = QHBoxLayout()
@@ -1085,7 +1494,7 @@ class SpermCounterApp(QMainWindow):
                 padding: 8px 16px;
                 border: 2px solid {THEME['border_color']};
                 border-radius: 8px;
-                background-color: white;
+                background-color: {THEME['surface']};
                 font-size: 14px;
                 font-weight: 500;
             }}
@@ -1101,6 +1510,7 @@ class SpermCounterApp(QMainWindow):
         viewer_options_layout.addWidget(self.viewer_tab)
         
         self.reset_btn = QPushButton("Reset View")
+        apply_fontawesome_icon(self.reset_btn, "fa5s.expand-arrows-alt", "white", 14)
         self.reset_btn.setMinimumSize(120, 40)
         self.reset_btn.setStyleSheet(f"""
             QPushButton {{
@@ -1127,25 +1537,9 @@ class SpermCounterApp(QMainWindow):
         viewer_container_layout.setContentsMargins(0, 10, 0, 0)
         viewer_container_layout.setSpacing(15)
         
-        original_label = QLabel("📷 Original Image")
-        original_label.setStyleSheet(f"""
-            QLabel {{
-                color: {THEME['text_primary']};
-                font-size: 16px;
-                font-weight: 600;
-                padding-bottom: 10px;
-            }}
-        """)
+        original_label = create_icon_label("fa5s.camera", "Original Image", THEME['sidebar_accent'], 16)
         
-        annotated_label = QLabel("🎨 Annotated Image")
-        annotated_label.setStyleSheet(f"""
-            QLabel {{
-                color: {THEME['text_primary']};
-                font-size: 16px;
-                font-weight: 600;
-                padding-bottom: 10px;
-            }}
-        """)
+        annotated_label = create_icon_label("fa5s.image", "Annotated Image", THEME['accent_green'], 16)
         
         original_viewer_widget = QWidget()
         original_viewer_layout = QVBoxLayout(original_viewer_widget)
@@ -1217,27 +1611,11 @@ class SpermCounterApp(QMainWindow):
         settings_layout = QVBoxLayout(settings_frame)
         settings_layout.setContentsMargins(40, 40, 40, 40)
         
-        settings_title = QLabel("⚙️ Application Settings")
-        settings_title.setStyleSheet(f"""
-            QLabel {{
-                color: {THEME['text_primary']};
-                font-size: 24px;
-                font-weight: 700;
-                padding-bottom: 30px;
-            }}
-        """)
+        settings_title = create_icon_label("fa5s.cogs", "Application Settings", THEME['sidebar_accent'], 24)
         settings_layout.addWidget(settings_title)
         
         output_layout = QVBoxLayout()
-        output_label = QLabel("Default Output Directory")
-        output_label.setStyleSheet(f"""
-            QLabel {{
-                color: {THEME['text_secondary']};
-                font-size: 15px;
-                font-weight: 600;
-                padding-bottom: 12px;
-            }}
-        """)
+        output_label = create_field_label("fa5s.folder", "Default Output Directory", THEME['text_secondary'], 15)
         output_layout.addWidget(output_label)
         
         output_path_layout = QHBoxLayout()
@@ -1248,7 +1626,7 @@ class SpermCounterApp(QMainWindow):
                 padding: 12px 16px;
                 border: 2px solid {THEME['border_color']};
                 border-radius: 10px;
-                background-color: white;
+                background-color: {THEME['surface']};
                 font-size: 16px;
                 font-weight: 500;
             }}
@@ -1259,6 +1637,7 @@ class SpermCounterApp(QMainWindow):
         output_path_layout.addWidget(self.output_dir_edit, 1)
         
         self.output_dir_btn = QPushButton("Browse")
+        apply_fontawesome_icon(self.output_dir_btn, "fa5s.folder-open", "white", 15)
         self.output_dir_btn.setMinimumSize(110, 50)
         self.output_dir_btn.setStyleSheet(f"""
             QPushButton {{
@@ -1282,28 +1661,13 @@ class SpermCounterApp(QMainWindow):
         settings_layout.addSpacing(35)
         
         thresholds_layout = QVBoxLayout()
-        thresholds_title = QLabel("Default Detection Thresholds")
-        thresholds_title.setStyleSheet(f"""
-            QLabel {{
-                color: {THEME['text_secondary']};
-                font-size: 15px;
-                font-weight: 600;
-                padding-bottom: 18px;
-            }}
-        """)
+        thresholds_title = create_field_label("fa5s.tachometer-alt", "Default Detection Thresholds", THEME['text_secondary'], 15)
         thresholds_layout.addWidget(thresholds_title)
         
         thresholds_grid = QHBoxLayout()
         
         default_conf_layout = QVBoxLayout()
-        default_conf_label = QLabel("Default Confidence Threshold")
-        default_conf_label.setStyleSheet(f"""
-            QLabel {{
-                color: {THEME['text_secondary']};
-                font-size: 14px;
-                padding-bottom: 10px;
-            }}
-        """)
+        default_conf_label = create_field_label("fa5s.sliders-h", "Default Confidence Threshold", THEME['text_secondary'], 14)
         default_conf_layout.addWidget(default_conf_label)
         
         self.default_conf_spin = QDoubleSpinBox()
@@ -1317,7 +1681,7 @@ class SpermCounterApp(QMainWindow):
                 padding: 12px 16px;
                 border: 2px solid {THEME['border_color']};
                 border-radius: 10px;
-                background-color: white;
+                background-color: {THEME['surface']};
                 font-size: 15px;
             }}
             QDoubleSpinBox:focus {{
@@ -1328,14 +1692,7 @@ class SpermCounterApp(QMainWindow):
         thresholds_grid.addLayout(default_conf_layout, 1)
         
         default_iou_layout = QVBoxLayout()
-        default_iou_label = QLabel("Default IoU Threshold")
-        default_iou_label.setStyleSheet(f"""
-            QLabel {{
-                color: {THEME['text_secondary']};
-                font-size: 14px;
-                padding-bottom: 10px;
-            }}
-        """)
+        default_iou_label = create_field_label("fa5s.crosshairs", "Default IoU Threshold", THEME['text_secondary'], 14)
         default_iou_layout.addWidget(default_iou_label)
         
         self.default_iou_spin = QDoubleSpinBox()
@@ -1349,7 +1706,7 @@ class SpermCounterApp(QMainWindow):
                 padding: 12px 16px;
                 border: 2px solid {THEME['border_color']};
                 border-radius: 10px;
-                background-color: white;
+                background-color: {THEME['surface']};
                 font-size: 15px;
             }}
             QDoubleSpinBox:focus {{
@@ -1363,9 +1720,69 @@ class SpermCounterApp(QMainWindow):
         settings_layout.addLayout(thresholds_layout)
         
         settings_layout.addSpacing(35)
+
+        appearance_layout = QVBoxLayout()
+        appearance_title = create_icon_label("fa5s.paint-brush", "Appearance and Workflow", THEME['text_secondary'], 15)
+        appearance_layout.addWidget(appearance_title)
+
+        appearance_grid = QHBoxLayout()
+        theme_layout = QVBoxLayout()
+        theme_label = create_field_label("fa5s.palette", "Theme", THEME['text_secondary'], 14)
+        theme_layout.addWidget(theme_label)
+
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItems(list(THEME_PRESETS.keys()))
+        self.theme_combo.setCurrentText(self.config.get("theme", "Laboratory"))
+        self.theme_combo.setMinimumHeight(50)
+        self.theme_combo.setStyleSheet(f"""
+            QComboBox {{
+                padding: 10px 16px;
+                border: 2px solid {THEME['border_color']};
+                border-radius: 10px;
+                background-color: {THEME['surface']};
+                color: {THEME['text_primary']};
+                font-size: 15px;
+                font-weight: 500;
+            }}
+            QComboBox:focus {{
+                border-color: {THEME['sidebar_accent']};
+            }}
+        """)
+        theme_layout.addWidget(self.theme_combo)
+        appearance_grid.addLayout(theme_layout, 1)
+
+        options_layout = QVBoxLayout()
+        options_label = create_field_label("fa5s.eye", "Display Options", THEME['text_secondary'], 14)
+        options_layout.addWidget(options_label)
+
+        self.show_conf_checkbox = QCheckBox("Show confidence labels on annotated images")
+        self.show_conf_checkbox.setChecked(self.config.get("show_confidence", True))
+        self.auto_open_viewer_checkbox = QCheckBox("Open image viewer automatically after analysis")
+        self.auto_open_viewer_checkbox.setChecked(self.config.get("auto_open_viewer", True))
+        for checkbox in (self.show_conf_checkbox, self.auto_open_viewer_checkbox):
+            checkbox.setStyleSheet(f"""
+                QCheckBox {{
+                    color: {THEME['text_primary']};
+                    background-color: transparent;
+                    border: none;
+                    font-size: 14px;
+                    padding: 5px 0;
+                }}
+                QCheckBox::indicator {{
+                    width: 18px;
+                    height: 18px;
+                }}
+            """)
+            options_layout.addWidget(checkbox)
+        appearance_grid.addLayout(options_layout, 1)
+        appearance_layout.addLayout(appearance_grid)
+        settings_layout.addLayout(appearance_layout)
+        
+        settings_layout.addSpacing(35)
         
         save_settings_layout = QHBoxLayout()
         self.save_settings_btn = QPushButton("Save Settings")
+        apply_fontawesome_icon(self.save_settings_btn, "fa5s.save", "white", 16)
         self.save_settings_btn.setMinimumSize(190, 55)
         self.save_settings_btn.setStyleSheet(f"""
             QPushButton {{
@@ -1421,9 +1838,13 @@ class SpermCounterApp(QMainWindow):
             self.output_dir_edit.setText(path)
     
     def save_settings(self):
+        previous_theme = self.config.get("theme", "Laboratory")
         self.config["output_dir"] = self.output_dir_edit.text()
         self.config["default_conf_thresh"] = self.default_conf_spin.value()
         self.config["default_iou_thresh"] = self.default_iou_spin.value()
+        self.config["theme"] = self.theme_combo.currentText()
+        self.config["show_confidence"] = self.show_conf_checkbox.isChecked()
+        self.config["auto_open_viewer"] = self.auto_open_viewer_checkbox.isChecked()
         
         self.conf_thresh = self.config["default_conf_thresh"]
         self.iou_thresh = self.config["default_iou_thresh"]
@@ -1432,6 +1853,18 @@ class SpermCounterApp(QMainWindow):
         self.iou_spin.setValue(self.iou_thresh)
         
         save_config(self.config)
+        if self.config["theme"] != previous_theme:
+            page_index = self.current_page
+            self.apply_theme_name(self.config["theme"])
+            self.setup_palette()
+            self.init_ui()
+            self.current_page = page_index
+            if page_index != 0:
+                self.nav_group.button(page_index).setChecked(True)
+                content_layout = self.centralWidget().layout().itemAt(1).widget().layout()
+                old_page = content_layout.itemAt(0).widget()
+                old_page.setParent(None)
+                content_layout.addWidget(self.pages[page_index])
         QMessageBox.information(self, "Success", "Settings saved successfully!")
     
     def start_analysis(self):
@@ -1469,7 +1902,13 @@ class SpermCounterApp(QMainWindow):
         self.stats_label.setText("")
         self.viewer_frame.setVisible(False)
         
-        self.worker = WorkerThread(self.detector, image_paths, self.conf_thresh, self.iou_thresh)
+        self.worker = WorkerThread(
+            self.detector,
+            image_paths,
+            self.conf_thresh,
+            self.iou_thresh,
+            self.config.get("show_confidence", True),
+        )
         self.worker.progress_updated.connect(self.update_progress)
         self.worker.result_ready.connect(self.show_results)
         self.worker.error_occurred.connect(self.show_error)
@@ -1502,7 +1941,7 @@ class SpermCounterApp(QMainWindow):
         self.start_btn.setEnabled(True)
         self.save_btn.setEnabled(True)
         
-        if len(results) > 0:
+        if len(results) > 0 and self.config.get("auto_open_viewer", True):
             if len(results) == 1:
                 self.viewer_frame.setVisible(True)
             else:
@@ -1529,7 +1968,11 @@ class SpermCounterApp(QMainWindow):
                 if image_path and os.path.exists(image_path):
                     try:
                         original_img = cv2.imread(image_path)
-                        annotated_img = self.detector.visualize(image_path, result.get('detections', []))
+                        annotated_img = self.detector.visualize(
+                            image_path,
+                            result.get('detections', []),
+                            self.config.get("show_confidence", True),
+                        )
                         
                         self.current_original_img = original_img
                         self.current_annotated_img = annotated_img

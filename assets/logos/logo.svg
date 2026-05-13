@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="160" y1="120" x2="860" y2="900" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f7fff9"/>
+      <stop offset="0.52" stop-color="#e2f6ef"/>
+      <stop offset="1" stop-color="#bce7da"/>
+    </linearGradient>
+    <linearGradient id="lens" x1="276" y1="254" x2="590" y2="626" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2dd4bf"/>
+      <stop offset="1" stop-color="#0f766e"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
+  <circle cx="748" cy="264" r="76" fill="#fb7185" opacity="0.92"/>
+  <circle cx="788" cy="702" r="48" fill="#14b8a6" opacity="0.75"/>
+  <circle cx="242" cy="742" r="62" fill="#34d399" opacity="0.7"/>
+  <path d="M355 236h164c22 0 40 18 40 40v74c0 22-18 40-40 40H355c-22 0-40-18-40-40v-74c0-22 18-40 40-40z" fill="#12312d"/>
+  <path d="M413 374h80v236h-80z" fill="#12312d"/>
+  <path d="M324 596h258c24 0 44 20 44 44s-20 44-44 44H324c-24 0-44-20-44-44s20-44 44-44z" fill="#12312d"/>
+  <path d="M274 744h374c29 0 52 23 52 52v4H222v-4c0-29 23-52 52-52z" fill="#12312d"/>
+  <path d="M606 318l72 72-216 216-72-72 216-216z" fill="url(#lens)"/>
+  <path d="M660 374l58 58c14 14 14 37 0 51l-62 62c-14 14-37 14-51 0l-58-58 113-113z" fill="#0f766e"/>
+  <circle cx="438" cy="532" r="118" fill="#ffffff" opacity="0.94"/>
+  <circle cx="438" cy="532" r="82" fill="#d9fff6"/>
+  <circle cx="410" cy="512" r="17" fill="#14b8a6"/>
+  <circle cx="458" cy="556" r="15" fill="#fb7185"/>
+  <circle cx="472" cy="494" r="10" fill="#14b8a6"/>
+  <path d="M372 628c32 32 98 44 154 10" fill="none" stroke="#0f766e" stroke-width="20" stroke-linecap="round"/>
+</svg>
